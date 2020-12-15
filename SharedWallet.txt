@@ -1,0 +1,97 @@
+pragma solidity ^0.6.0;
+import "/Owned.sol";
+import "https://github.com/OpenZeppelin/openzeppelin-contracts/contracts/math/SafeMath.sol";
+
+contract SharedWallet is Owned{
+    
+    struct Payment {
+        uint amount;
+        uint timeStamp;
+        bool isCredit;
+    }
+    
+    struct Transaction {
+        uint numPayents;
+        mapping(uint => Payment) payents;
+    }
+    
+    modifier WalletActivated {
+        require(walletActivated ,"contact is paused");
+        _;
+    }
+    
+    mapping(address => Transaction) transactionHistory;
+    mapping(address => uint) balanceGrant;
+    mapping(address => bool) whiteList;
+    bool walletActivated;
+
+    using SafeMath for uint;
+
+    event AmountCredited(address, uint);
+    event AmountDebited(address, uint);
+    event WhiteListStatusCheck(address, bool);
+    event GrantStatus(address, uint);
+    event ContactActiveStatus(bool, uint);
+
+    constructor() public {
+        whiteList[owner] = true;
+        walletActivated = true;
+    }
+    
+    function updateContractStatus(bool _status) public onlyOwner {
+        walletActivated = _status;
+        emit ContactActiveStatus(_status, now);
+    }
+    
+    function setWhileListAccount(address _account) public onlyOwner WalletActivated {
+        whiteList[_account] = true;
+    }
+    
+    function unsetWhileListAccount(address _account) public onlyOwner WalletActivated {
+        whiteList[_account] = false;
+    }
+    
+    function checkWhiteListStatus() public WalletActivated{
+        emit WhiteListStatusCheck(msg.sender, whiteList[msg.sender]);
+    }
+    
+    function increaseGrant(address _account, uint _amount) public onlyOwner WalletActivated {
+        require(whiteList[_account], "Account is in not in White List");
+        assert(balanceGrant[owner]  >= _amount);
+        balanceGrant[_account] = balanceGrant[_account].add(_amount);
+        balanceGrant[owner] = balanceGrant[owner].sub(_amount);
+
+    }
+    
+    function reduceGrant(address _account, uint _amount) public onlyOwner WalletActivated {
+        require(balanceGrant[_account] >= _amount , "Not enough grant");
+        balanceGrant[owner] = balanceGrant[owner].add(_amount);
+        balanceGrant[_account] = balanceGrant[_account].sub(_amount);
+    }
+    
+    function checkGrant() public WalletActivated {
+        emit GrantStatus(msg.sender, balanceGrant[msg.sender]);
+    }
+    
+    function withdrawMoney(address payable _to, uint _amount) public WalletActivated {
+        require(whiteList[msg.sender], "You are not in White List");
+        assert(balanceGrant[msg.sender] > _amount);
+        _to.transfer(_amount);
+        balanceGrant[msg.sender] = balanceGrant[msg.sender].sub(_amount);
+        Payment memory payment = Payment(_amount, now, false);
+        transactionHistory[msg.sender].payents[ transactionHistory[msg.sender].numPayents] = payment;
+        transactionHistory[msg.sender].numPayents++;
+        emit AmountDebited(msg.sender, _amount);
+    }
+
+    
+    receive() external payable WalletActivated {
+        balanceGrant[owner] = balanceGrant[owner].add(msg.value);
+        Payment memory payment = Payment(msg.value, now, true);
+        transactionHistory[msg.sender].payents[ transactionHistory[msg.sender].numPayents] = payment;
+        transactionHistory[msg.sender].numPayents++;
+        emit AmountCredited(msg.sender, msg.value);
+    }
+    
+    
+}
